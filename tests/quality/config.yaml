@@ -68,6 +68,8 @@ tests:
       - alpine:distro:alpine:3.16
       - alpine:distro:alpine:3.17
       - alpine:distro:alpine:3.18
+      - alpine:distro:alpine:3.19
+      - alpine:distro:alpine:3.20
       - alpine:distro:alpine:edge
 
   - provider: amazon
@@ -191,29 +193,33 @@ tests:
       - redhat:distro:redhat:8
       - redhat:distro:redhat:9
 
-# TODO: add sles test images and labels once there is a capability in grype to do so
-#  - providers:
-#      - name: sles
-#    images:
-#      -
-#    expected_namespaces:
-#      - sles:distro:sles:11
-#      - sles:distro:sles:11.1
-#      - sles:distro:sles:11.2
-#      - sles:distro:sles:11.3
-#      - sles:distro:sles:11.4
-#      - sles:distro:sles:12
-#      - sles:distro:sles:12.1
-#      - sles:distro:sles:12.2
-#      - sles:distro:sles:12.3
-#      - sles:distro:sles:12.4
-#      - sles:distro:sles:12.5
-#      - sles:distro:sles:15
-#      - sles:distro:sles:15.1
-#      - sles:distro:sles:15.2
-#      - sles:distro:sles:15.3
-#      - sles:distro:sles:15.4
-#      - sles:distro:sles:15.5
+  - provider: sles
+    additional_trigger_globs:
+      - src/vunnel/utils/oval_v2.py
+
+    images:
+      - registry.suse.com/suse/sles12sp4:26.380@sha256:94b537f5b312e7397b5d0bbb3d892f961acdd9454950fc233d77f771e25335fb
+      - registry.suse.com/suse/sle15:15.1.6.2.461@sha256:6e613c994c3b33224e439ef8ee9003fb69416f77f7a6b1da0b18981d5aa3bb75
+
+    expected_namespaces:
+      - sles:distro:sles:11
+      - sles:distro:sles:11.1
+      - sles:distro:sles:11.2
+      - sles:distro:sles:11.3
+      - sles:distro:sles:11.4
+      - sles:distro:sles:12
+      - sles:distro:sles:12.1
+      - sles:distro:sles:12.2
+      - sles:distro:sles:12.3
+      - sles:distro:sles:12.4
+      - sles:distro:sles:12.5
+      - sles:distro:sles:15
+      - sles:distro:sles:15.1
+      - sles:distro:sles:15.2
+      - sles:distro:sles:15.3
+      - sles:distro:sles:15.4
+      - sles:distro:sles:15.5
+      - sles:distro:sles:15.6
 
   - provider: ubuntu
     # ideally we would not use cache, however, the ubuntu provider is currently very expensive to run.
@@ -221,6 +227,10 @@ tests:
     use_cache: true
     images:
       - docker.io/ubuntu:16.10@sha256:8dc9652808dc091400d7d5983949043a9f9c7132b15c14814275d25f94bca18a
+      - docker.io/ubuntu:19.04@sha256:3db17bfc30b41cc18552578f4a66d7010050eb9fdc42bf6c3d82bb0dcdf88d58
+      - docker.io/ubuntu:22.04@sha256:aa6c2c047467afc828e77e306041b7fa4a65734fe3449a54aa9c280822b0d87d
+      - docker.io/ubuntu:22.10@sha256:80fb4ea0c0a384a3072a6be1879c342bb636b0d105209535ba893ba75ab38ede
+      - docker.io/ubuntu:23.04@sha256:09f035f46361d193ded647342903b413d57d05cc06acff8285f9dda9f2d269d5
     expected_namespaces:
       - ubuntu:distro:ubuntu:12.04
       - ubuntu:distro:ubuntu:12.10
@@ -245,6 +255,7 @@ tests:
       - ubuntu:distro:ubuntu:22.10
       - ubuntu:distro:ubuntu:23.04
       - ubuntu:distro:ubuntu:23.10
+      - ubuntu:distro:ubuntu:24.04
 
   - provider: wolfi
     additional_providers:

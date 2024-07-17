@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import os
 from urllib.parse import urlparse
+
+import orjson
 
 from vunnel.utils import http, vulnerability
 
@@ -64,7 +65,7 @@ class Parser:
         # parse and transform the json
         try:
             with open(f"{self.secdb_dir_path}/{self._db_filename}") as fh:
-                dbtype_data_dict = json.load(fh)
+                dbtype_data_dict = orjson.loads(fh.read())
 
                 yield self._release_, dbtype_data_dict
         except Exception:
@@ -101,11 +102,16 @@ class Parser:
                         # create a new record
                         vuln_dict[vid] = copy.deepcopy(vulnerability.vulnerability_element)
                         vuln_record = vuln_dict[vid]
+                        reference_links = vulnerability.build_reference_links(vid)
 
                         # populate the static information about the new vuln record
                         vuln_record["Vulnerability"]["Name"] = str(vid)
                         vuln_record["Vulnerability"]["NamespaceName"] = self.namespace + ":" + str(release)
-                        vuln_record["Vulnerability"]["Link"] = "http://cve.mitre.org/cgi-bin/cvename.cgi?name=" + str(vid)
+
+                        if reference_links:
+                            # TODO: Support multiple links
+                            vuln_record["Vulnerability"]["Link"] = reference_links[0]
+
                         vuln_record["Vulnerability"]["Severity"] = "Unknown"
                     else:
                         vuln_record = vuln_dict[vid]

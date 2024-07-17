@@ -74,6 +74,9 @@ def test_run(mocker, monkeypatch) -> None:
                     existing_input=provider.InputStatePolicy.KEEP,
                     existing_results=provider.InputStatePolicy.KEEP,
                     result_store=result.StoreStrategy.SQLITE,
+                    import_results_host="",
+                    import_results_path="providers/{provider_name}/listing.json",
+                    import_results_enabled=False,
                 ),
                 request_timeout=125,
                 api_key="secret",
@@ -125,6 +128,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -132,11 +138,16 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   amazon:
+    max_allowed_alas_http_403: 25
     request_timeout: 125
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -144,6 +155,7 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
     security_advisories:
       '2': https://alas.aws.amazon.com/AL2/alas.rss
       '2022': https://alas.aws.amazon.com/AL2022/alas.rss
@@ -153,6 +165,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -160,6 +175,13 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
+  common:
+    import_results:
+      enabled: false
+      host: ''
+      path: providers/{provider_name}/listing.json
+      skip_newer_archive_check: false
   debian:
     releases:
       bookworm: '12'
@@ -174,6 +196,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -181,12 +206,16 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   github:
     api_url: https://api.github.com/graphql
     request_timeout: 125
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -194,6 +223,7 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
     token: secret
   mariner:
     allow_versions:
@@ -203,6 +233,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -210,12 +243,18 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   nvd:
     api_key: secret
+    overrides_enabled: false
+    overrides_url: https://github.com/anchore/nvd-data-overrides/archive/refs/heads/main.tar.gz
     request_timeout: 125
     runtime:
       existing_input: keep
       existing_results: keep
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -223,11 +262,15 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   oracle:
     request_timeout: 125
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -235,6 +278,7 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   rhel:
     full_sync_interval: 2
     parallelism: 4
@@ -242,6 +286,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -249,6 +296,7 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
     skip_namespaces:
       - rhel:3
       - rhel:4
@@ -261,6 +309,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -268,6 +319,7 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   ubuntu:
     additional_versions: {}
     enable_rev_history: true
@@ -278,6 +330,9 @@ providers:
     runtime:
       existing_input: keep
       existing_results: keep
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -285,11 +340,15 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
   wolfi:
     request_timeout: 125
     runtime:
       existing_input: keep
       existing_results: delete-before-write
+      import_results_enabled: false
+      import_results_host: ''
+      import_results_path: providers/{provider_name}/listing.json
       on_error:
         action: fail
         input: keep
@@ -297,6 +356,7 @@ providers:
         retry_count: 3
         retry_delay: 5
       result_store: sqlite
+      skip_newer_archive_check: false
 root: ./data
 """
     assert expected_output.strip() in res.output

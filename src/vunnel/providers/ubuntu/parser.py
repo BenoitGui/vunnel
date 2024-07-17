@@ -3,7 +3,6 @@ from __future__ import annotations
 import concurrent.futures
 import copy
 import enum
-import json
 import logging
 import os
 import re
@@ -27,7 +26,7 @@ default_git_url = "git://git.launchpad.net/ubuntu-cve-tracker"
 default_git_branch = "master"
 
 ubuntu_pkg_version_format = "dpkg"
-ubuntu_cve_url = "http://people.ubuntu.com/~ubuntu-security/cve/{}"
+ubuntu_cve_url = "https://ubuntu.com/security/{}"
 _patches_header_regex = re.compile(r"Patches_(\S+)\s*")
 _patches_regex = re.compile(r"\s*(.+)_(.+)\s*:\s+(.+)\s*")
 _patch_state_regex = re.compile(r"\s*(\S+)(\s+.+)?\s*")
@@ -38,8 +37,8 @@ _cve_filename_regex = re.compile("CVE-[0-9]+-[0-9]+")
 # Per the Ubuntu README in the security tracker BZR repo:
 # Maps the state name to whether it indicates a package is vulnerable
 patch_states = {
-    "DNE": False,  # Does Not Exist, no fix
-    "needs-triage": False,  # Not yet determined if CVE affects package, ignore in anchore until determination made
+    "DNE": False,  # Does Not Exist, the package is does not exist in a particular ubuntu release
+    "needs-triage": True,  # Not yet determined if CVE affects package, consider all versions vulnerable until determination is made
     "ignored": False,  # CVE does not affect the package or no updates (e.g. end-of-life) (NOTE: should still report?)
     "not-affected": False,  # The package is related to the issue, but not affected by it.
     "needed": True,  # Package is vuln and needs a fix. No version yet.
@@ -85,6 +84,8 @@ ubuntu_version_names = {
     "kinetic": "22.10",
     "lunar": "23.04",
     "mantic": "23.10",
+    "noble": "24.04",
+    "oracular": "24.10",
 }
 
 # driver workspace
@@ -149,6 +150,7 @@ class FixedIn(JsonifierMixin):
         self.NamespaceName = None
         self.VersionFormat = None
         self.Version = None
+        self.VendorAdvisory = None
 
 
 class Severity(enum.IntEnum):
@@ -284,7 +286,7 @@ def parse_patch(header: str, lines: list[str]) -> list[Patch]:  # noqa: C901
                 status_match = _patch_state_regex.match(match.group(3))
                 if status_match and status_match.group(1):
                     state = status_match.group(1)
-                    if state in patch_states:  # and patch_states[state]:
+                    if state in patch_states:
                         version = status_match.group(2)
                         if version:
                             version = version.strip()
@@ -461,6 +463,13 @@ def map_namespace(release_name: str) -> str | None:
     return None
 
 
+def parse_severity_from_priority(cve: CVEFile) -> Severity:
+    severity = cve.priority.capitalize()
+    if severity in {"Untriaged"}:
+        return Severity.Unknown
+    return getattr(Severity, severity)
+
+
 def map_parsed(parsed_cve: CVEFile, logger: logging.Logger | None = None):  # noqa: C901, PLR0912
     """
     Maps a parsed CVE dict into a Vulnerability object.
@@ -494,10 +503,16 @@ def map_parsed(parsed_cve: CVEFile, logger: logging.Logger | None = None):  # no
                 continue
 
             r = Vulnerability()
+
             try:
-                r.Severity = getattr(Severity, parsed_cve.priority.capitalize())
+                r.Severity = parse_severity_from_priority(parsed_cve)
+            except AttributeError:
+                logger.warning(
+                    f"setting unknown severity on {parsed_cve.name} due to unsupported priority value {parsed_cve.priority}",
+                )
+                r.Severity = Severity.Unknown
             except Exception:
-                logger.exception("setting unknown severity due to exception getting severity")
+                logger.exception(f"setting unknown severity on {parsed_cve.name} due to exception parsing severity from priority")
                 r.Severity = Severity.Unknown
 
             r.Name = parsed_cve.name
@@ -508,7 +523,9 @@ def map_parsed(parsed_cve: CVEFile, logger: logging.Logger | None = None):  # no
             vulns[namespace_name] = r
 
         # If the patch status is one we care about, make the FixedIn record, else skip it but create CVE records
-        if check_state(p.status):
+        # We currently want to mark end-of-support records with no previously known fix as vulnerable, hence the
+        # or check_merge step here.
+        if check_state(p.status) or check_merge(p):
             pkg = FixedIn()
             pkg.Name = p.package
 
@@ -519,7 +536,7 @@ def map_parsed(parsed_cve: CVEFile, logger: logging.Logger | None = None):  # no
                 pkg.Version = p.version
                 if pkg.Version is None:
                     logger.debug(
-                        'found CVE {} in ubuntu version {} with "released" status for pkg {} but no version for release. Released patches should have version info, but missing in source data. Marking package as not vulnerable'.format(  # noqa: E501, G001
+                        'found CVE {} in ubuntu version {} with "released" status for pkg {} but no version for release. Released patches should have version info, but missing in source data. Marking package as not vulnerable'.format(  # noqa: E501, G001, UP032
                             r.Name,
                             r.NamespaceName,
                             pkg.Name,
@@ -530,6 +547,13 @@ def map_parsed(parsed_cve: CVEFile, logger: logging.Logger | None = None):  # no
 
             else:
                 pkg.Version = "None"
+                # Set NoAdvisory to true so that `wont-fix` status gets set on
+                # out of support entries
+                if p.status == "ignored":
+                    pkg.VendorAdvisory = {"NoAdvisory": True}
+
+            if not pkg.VendorAdvisory:
+                pkg.VendorAdvisory = {"NoAdvisory": False}
 
             pkg.VersionFormat = "dpkg"
             pkg.NamespaceName = namespace_name
@@ -765,7 +789,7 @@ class Parser:
     def _load_merged_cve(self, cve_id: str) -> CVEFile | None:
         if os.path.exists(os.path.join(self.norm_workspace, cve_id)):
             with open(os.path.join(self.norm_workspace, cve_id)) as fp:
-                cve_json = json.load(fp)
+                cve_json = orjson.loads(fp.read())
                 return CVEFile.from_dict(cve_json)
 
         return None
@@ -783,7 +807,7 @@ class Parser:
     def _merged_cve_iterator(self) -> Generator[CVEFile, None, None]:
         for cve_id in filter(lambda x: _cve_filename_regex.match(x), os.listdir(self.norm_workspace)):
             with open(os.path.join(self.norm_workspace, cve_id)) as fp:
-                cve = json.load(fp)
+                cve = orjson.loads(fp.read())
                 yield CVEFile.from_dict(cve)
 
     def _merged_cve_exists(self, cve_id):
@@ -827,7 +851,7 @@ class Parser:
                     merged_patches.extend(resolved_patches)
                     if pending_dpt_list:
                         self.logger.debug(
-                            "exhausted all revisions for {} but could not resolve patches: {}".format(  # noqa: G001
+                            "exhausted all revisions for {} but could not resolve patches: {}".format(  # noqa: UP032, G001
                                 cve_rel_path,
                                 [to_be_merged_map[x] for x in pending_dpt_list],
                             ),

@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 #v4.1.1
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 #v4.1.7
         with:
           # in order to properly resolve the version from git
           fetch-depth: 0
@@ -48,8 +48,11 @@ jobs:
 
           - version: '3.11'
             toxEnv: py311
+
+          - version: '3.12'
+            toxEnv: py312
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 #v4.1.1
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 #v4.1.7
         with:
           # in order to properly resolve the version from git
           fetch-depth: 0
@@ -91,7 +94,7 @@ jobs:
       # package write permission is needed for publishing commit images
       packages: write
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 #v4.1.1
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 #v4.1.7
         with:
           # in order to properly resolve the version from git
           fetch-depth: 0

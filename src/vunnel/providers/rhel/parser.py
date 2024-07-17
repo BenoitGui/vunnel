@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import copy
-import json
 import logging
 import os
 import re
@@ -11,6 +10,7 @@ from datetime import datetime as dt
 from decimal import Decimal as D
 from typing import TYPE_CHECKING
 
+import orjson
 from cvss import CVSS3
 from dateutil import parser as dt_parser
 
@@ -34,7 +34,8 @@ NamespacePayload = namedtuple("NamespacePayload", ["namespace", "payload"])
 
 
 class Parser:
-    __rhel_release_pattern__ = re.compile(r"Red Hat Enterprise Linux\s*(\d+)$")
+    __cve_rhel_product_name_base__ = "Red Hat Enterprise Linux"
+    __rhel_release_pattern__ = re.compile(__cve_rhel_product_name_base__ + r"\s*(\d+)$")
     __summary_url__ = "https://access.redhat.com/hydra/rest/securitydata/cve.json"
     __rhsa_url__ = "https://access.redhat.com/hydra/rest/securitydata/oval/{}.json"
     __last_synced_filename__ = "last_synced"
@@ -44,6 +45,7 @@ class Parser:
     __rhsa_dir_name__ = "rhsa"
     __cve_dir_name__ = "cve"
     __min_dir_name__ = "min"
+    __min_pages_dir_name__ = "min_pages"
     __full_dir_name__ = "full"
     __last_full_sync_filename__ = "last_full_sync"
 
@@ -71,11 +73,11 @@ class Parser:
             logger = logging.getLogger(self.__class__.__name__)
         self.logger = logger
 
-    def _download_minimal_cves(self, page, limit=100):
-        path_params = {"per_page": str(limit), "page": page}
+    def _download_minimal_cves(self, page, limit=1000):
+        path_params = {"per_page": str(limit), "page": page, "product": self.__cve_rhel_product_name_base__}
 
         self.logger.info(
-            f"downloading CVE list from url={self.__summary_url__} count={path_params['per_page']} page={path_params['page']}",
+            f"downloading CVE list from url={self.__summary_url__} count={path_params['per_page']} page={path_params['page']}, product={path_params['product']}",  # noqa: E501
         )
         r = http.get(
             self.__summary_url__,
@@ -83,6 +85,7 @@ class Parser:
             params=path_params,
             timeout=self.download_timeout,
         )
+
         return r.json()
 
     def _process_minimal_cve(self, min_cve_api, do_full_sync, min_cve_dir, full_cve_dir):
@@ -110,7 +113,7 @@ class Parser:
         try:
             if not do_full_sync and os.path.exists(min_cve_file) and os.path.exists(full_cve_file):
                 with open(min_cve_file, encoding="utf-8") as fp:  # load minimal cve from disk
-                    min_cve_fs = json.load(fp)
+                    min_cve_fs = orjson.loads(fp.read())
                 if min_cve_fs == min_cve_api:  # only case where a download is not necessary
                     download = False
                 else:
@@ -122,8 +125,8 @@ class Parser:
                 self._download_entity(url, full_cve_file)
 
                 # save minimal to disk
-                with open(min_cve_file, "w", encoding="utf-8") as fp:
-                    json.dump(min_cve_api, fp)
+                with open(min_cve_file, "wb") as fp:
+                    fp.write(orjson.dumps(min_cve_api))
 
             return download
         except Exception as e:
@@ -132,6 +135,39 @@ class Parser:
             utils.silent_remove(min_cve_file)
             utils.silent_remove(full_cve_file)
             raise  # raise the original exception
+
+    def _download_minimal_cve_pages(self) -> int:
+        dir_path = os.path.join(self.cve_dir_path, self.__min_pages_dir_name__)
+
+        # clear all existing records
+        utils.silent_remove(dir_path, tree=True)
+        os.makedirs(dir_path)
+
+        page = 0
+        count = 0
+        while True:
+            page += 1
+            results = self._download_minimal_cves(page)
+
+            if not isinstance(results, list) or not results:
+                break
+
+            min_cve_file = os.path.join(dir_path, f"{page}.json")
+
+            count += len(results)
+
+            with open(min_cve_file, "wb") as fp:
+                fp.write(orjson.dumps(results))
+
+        return count
+
+    def enumerate_minimal_cve_pages(self):
+        dir_path = os.path.join(self.cve_dir_path, self.__min_pages_dir_name__)
+
+        for file in os.listdir(dir_path):
+            if file.endswith(".json"):
+                with open(os.path.join(dir_path, file), encoding="utf-8") as fp:
+                    yield orjson.loads(fp.read())
 
     # TODO: ALEX, should skip_if_exists be hooked up here? (currently unused)
     def _sync_cves(self, skip_if_exists=False, do_full_sync=True):  # noqa: PLR0915, PLR0912, C901
@@ -185,20 +221,16 @@ class Parser:
         utils.silent_remove(os.path.join(self.cve_dir_path, self.__last_synced_filename__))
         utils.silent_remove(os.path.join(self.cve_dir_path, self.__cve_download_error_filename__))
 
+        count = self._download_minimal_cve_pages()
+
+        self.logger.info(f"downloading and processing {count} CVEs")
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             download_count = 0
-            page = 0
             api_cve_set = set()  # definitive set of cves
             error = False
 
-            while True:
-                # get a page of cve minimal/summary list
-                page += 1
-                results = self._download_minimal_cves(page)
-
-                if not isinstance(results, list) or not results:
-                    break
-
+            for results in self.enumerate_minimal_cve_pages():
                 future_cve_dict = {
                     executor.submit(
                         self._process_minimal_cve,
@@ -212,7 +244,16 @@ class Parser:
 
                 for future in concurrent.futures.as_completed(future_cve_dict):
                     cve_id = future_cve_dict[future]
+
+                    before = len(api_cve_set)
+
                     api_cve_set.add(cve_id)  # add to api set
+
+                    if len(api_cve_set) == before:  # duplicate cve id
+                        self.logger.warning(
+                            f"duplicate cve id {cve_id} found from api response (this is a known issue with the upstream API)",
+                        )
+
                     try:
                         download = future.result()
                     except Exception:
@@ -263,8 +304,6 @@ class Parser:
         return full_cve_dir
 
     def _download_entity(self, url, destination):
-        self.logger.trace(f"downloading {url}")
-
         def status_handler(r: requests.Response):
             if r.status_code not in [200, 404]:
                 r.raise_for_status()
@@ -399,7 +438,7 @@ class Parser:
                     name = colon_comps[0]  # best guess for name, fall back to rhsa for version lookup
 
         else:  # no epoch foo-bar-2.3.4-5.el6_7.8 or something else totally different  # noqa: PLR5501
-            if package.count("-") >= 2:  #
+            if package.count("-") >= 2:
                 name_other_comps = package.rsplit("-", 2)  # split name-version-release.arch.rpm into max 3 chunks
                 name = name_other_comps[0]  # only the name matters
                 version = "-".join(name_other_comps[1:])  # join the rest
@@ -545,14 +584,16 @@ class Parser:
                     package=ar_obj.name,
                     version=ar_obj.version,
                     module=ar_obj.module,
-                    advisory=Advisory(
-                        wont_fix=False,
-                        rhsa_id=ar_obj.rhsa_id,
-                        link=f"https://access.redhat.com/errata/{ar_obj.rhsa_id}",
-                        severity=None,
-                    )
-                    if ar_obj.rhsa_id
-                    else Advisory(wont_fix=False, rhsa_id=None, link=None, severity=None),
+                    advisory=(
+                        Advisory(
+                            wont_fix=False,
+                            rhsa_id=ar_obj.rhsa_id,
+                            link=f"https://access.redhat.com/errata/{ar_obj.rhsa_id}",
+                            severity=None,
+                        )
+                        if ar_obj.rhsa_id
+                        else Advisory(wont_fix=False, rhsa_id=None, link=None, severity=None)
+                    ),
                 )
                 for ar_obj in final_ar_objs.values()
             ]
@@ -570,7 +611,18 @@ class Parser:
 
         return fixed_ins
 
-    def _parse_package_state(self, cve_id: str, fixed: list[FixedIn], content) -> list[FixedIn]:  # noqa: C901
+    def _parse_package_name_and_module(self, item: dict) -> tuple[str | None, str | None]:
+        package_name = item.get("package_name")
+        module = None
+
+        if package_name and "/" in package_name:
+            components = package_name.split("/")
+            package_name = components[1]
+            module = components[0]
+
+        return package_name, module
+
+    def _parse_package_state(self, cve_id: str, content) -> list[FixedIn]:  # noqa: C901
         affected: list[FixedIn] = []
         out_of_support: list[FixedIn] = []  # Track items out of support to be able to add them if others are affected
         pss = content.get("package_state", [])
@@ -588,16 +640,14 @@ class Parser:
                 if not platform or f"{namespace}:{platform}" in self.skip_namespaces:
                     continue
 
-                package_name = item.get("package_name", None)
-                module = None
-
-                if "/" in package_name:
-                    components = package_name.split("/")
-                    package_name = components[1]
-                    module = components[0]
+                package_name, module = self._parse_package_name_and_module(item)
 
                 if not package_name:
                     self.logger.debug(f"package state package_name missing for {cve_id} platform {platform}")
+                    continue
+
+                if module and module.endswith(":flatpak"):
+                    self.logger.debug(f"skipping flatpak entry {package_name} for {cve_id} platform {platform}")
                     continue
 
                 state = item.get("fix_state", None)
@@ -645,13 +695,35 @@ class Parser:
 
         return affected + out_of_support
 
+    def _parse_cvss3(self, cvss3: dict | None) -> RHELCVSS3 | None:
+        if not cvss3:
+            return None
+
+        vector = cvss3.get("cvss3_scoring_vector", None)
+        base_score = cvss3.get("cvss3_base_score", None)
+
+        if not vector or not base_score:
+            return None
+
+        try:
+            return RHELCVSS3(
+                vector,
+                base_score,
+                cvss3.get("status", None),
+            )
+
+        except Exception:
+            self.logger.info("unable to make cvss3, defaulting to None", exc_info=True)
+
+        return None
+
     def _parse_cve(self, cve_id, content):  # noqa: C901, PLR0912, PLR0915
         # logger.debug('Parsing {}'.format(cve_id))
 
         results = []
         platform_artifacts = {}
         fins = self._parse_affected_release(cve_id, content)
-        nfins = self._parse_package_state(cve_id, fins, content)
+        nfins = self._parse_package_state(cve_id, content)
         platform_package_module_tuples = set()
 
         if fins or nfins:
@@ -679,16 +751,7 @@ class Parser:
             else:
                 description = ""  # leaving this empty to be compatible with some old client side logic that expects it
 
-            try:
-                cvssv3 = content.get("cvss3", {})
-                cvssv3_obj = RHELCVSS3(
-                    cvssv3.get("cvss3_scoring_vector", None),
-                    cvssv3.get("cvss3_base_score", None),
-                    cvssv3.get("status", None),
-                )
-            except Exception:
-                self.logger.info("unable to make cvss3, defaulting to None", exc_info=True)
-                cvssv3_obj = None
+            cvssv3_obj = self._parse_cvss3(content.get("cvss3", None))
 
             for item in nfins:  # process not fixed in packages first as that trumps fixes
                 if item.platform not in platform_artifacts:
@@ -762,7 +825,7 @@ class Parser:
 
     def _process_full_cve(self, cve_id, cve_file_path):
         with open(cve_file_path, encoding="utf-8") as fp:
-            content = json.load(fp)
+            content = orjson.loads(fp.read())
 
         return self._parse_cve(cve_id, content)
 

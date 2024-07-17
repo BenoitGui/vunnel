@@ -3,8 +3,10 @@ A generic framework for parsing an OVAL xml file. Design is based on separate co
 Each section is associated with a parser that can be overridden by the driver. Parsed output represents a view of the
 OVAL content, it's up to the driver to transform it into normalized feed data
 """
+
 from __future__ import annotations
 
+import bz2
 import enum
 import gzip
 import logging
@@ -14,6 +16,7 @@ import xml.etree.ElementTree as ET  # nosec (this is only used to get the defini
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Callable
 
 from defusedxml.ElementTree import iterparse
 
@@ -93,8 +96,7 @@ class OVALElementParser(ABC):
 
     @staticmethod
     @abstractmethod
-    def parse(xml_element: ET.Element, config: OVALParserConfig) -> Parsed | None:
-        ...
+    def parse(xml_element: ET.Element, config: OVALParserConfig) -> Parsed | None: ...
 
     @staticmethod
     def _find_with_regex(data: str, regex: re.Pattern):
@@ -146,7 +148,9 @@ class VulnerabilityParser(OVALElementParser, ABC):
         if not criteria_element:
             return results
 
-        if criteria_element.attrib["operator"].lower() == "or":
+        operator = criteria_element.attrib.get("operator")
+
+        if operator and operator.lower() == "or":
             # indicates multiple groups of impacted artifacts, parse each group and gather results
             for child in criteria_element:
                 results.extend(VulnerabilityParser._parse_group(child, config))
@@ -222,15 +226,16 @@ class VulnerabilityParser(OVALElementParser, ABC):
         test_ids = []
         crit_tag = OVALElementParser._find_with_regex(crit_element.tag, config.tag_regex)  # noqa: SLF001
 
-        if crit_tag == "criterion":
+        if crit_tag == "criterion" and "comment" in crit_element.attrib:
             regex_match = re.search(regex, crit_element.attrib["comment"])
-            if regex_match and crit_element.attrib["test_ref"]:
+            if regex_match and "test_ref" in crit_element.attrib:
                 test_ids.append(crit_element.attrib["test_ref"])
         elif crit_tag == "criteria":
             for criterion in crit_element:
-                regex_match = re.search(regex, criterion.attrib["comment"])
-                if regex_match and criterion.attrib["test_ref"]:
-                    test_ids.append(criterion.attrib["test_ref"])
+                if "comment" in criterion.attrib:
+                    regex_match = re.search(regex, criterion.attrib["comment"])
+                    if regex_match and criterion.attrib.get("test_ref"):
+                        test_ids.append(criterion.attrib["test_ref"])
 
         return test_ids
 
@@ -336,7 +341,7 @@ class VersionParser(OVALElementParser):
             identity = xml_element.attrib["id"]
             for child in xml_element:
                 child_tag = OVALElementParser._find_with_regex(child.tag, config.tag_regex)  # noqa: SLF001
-                if child_tag in ["version", "evr"]:
+                if child_tag in ["version", "evr"] and "operation" in child.attrib:
                     op = child.attrib["operation"]
                     value = child.text
                     break
@@ -396,6 +401,14 @@ class OVALParserFactory:
         return result
 
 
+def get_opener(filename: str) -> Callable:
+    if filename.endswith(".gz"):
+        return gzip.open
+    if filename.endswith(".bz2"):
+        return bz2.open
+    return open
+
+
 def iter_parse_vulnerability_file(
     oval_file_path: str,
     parser_config: OVALParserConfig,
@@ -414,10 +427,7 @@ def iter_parse_vulnerability_file(
 
     if os.path.exists(oval_file_path):
         ingress = False
-        opener = open
-
-        if oval_file_path.endswith(".gz"):
-            opener = gzip.open
+        opener = get_opener(oval_file_path)
 
         with opener(oval_file_path, "rb") as f:
             for event, xml_element in iterparse(f, events=("start", "end")):

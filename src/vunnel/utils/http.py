@@ -1,9 +1,14 @@
-import logging
+from __future__ import annotations
+
+import random
 import time
-from collections.abc import Callable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import requests
+
+if TYPE_CHECKING:
+    import logging
+    from collections.abc import Callable
 
 DEFAULT_TIMEOUT = 30
 
@@ -14,7 +19,7 @@ def get(  # noqa: PLR0913
     retries: int = 5,
     backoff_in_seconds: int = 3,
     timeout: int = DEFAULT_TIMEOUT,
-    status_handler: Optional[Callable[[requests.Response], None]] = None,
+    status_handler: Optional[Callable[[requests.Response], None]] = None,  # noqa: UP007 - python 3.9
     **kwargs: Any,
 ) -> requests.Response:
     """
@@ -42,9 +47,12 @@ def get(  # noqa: PLR0913
     """
     logger.debug(f"http GET {url}")
     last_exception: Exception | None = None
+    sleep_interval = backoff_in_seconds
     for attempt in range(retries + 1):
         if last_exception:
-            time.sleep(backoff_in_seconds)
+            time.sleep(sleep_interval)
+            sleep_interval = backoff_in_seconds * 2**attempt + random.uniform(0, 1)  # noqa: S311
+            # explanation of S311 disable: rng is not used cryptographically
         try:
             response = requests.get(url, timeout=timeout, **kwargs)
             if status_handler:
@@ -56,17 +64,17 @@ def get(  # noqa: PLR0913
             last_exception = e
             will_retry = ""
             if attempt < retries:
-                will_retry = f" (will retry in {backoff_in_seconds} seconds) "
+                will_retry = f" (will retry in {int(backoff_in_seconds)} seconds) "
             # HTTPError includes the attempted request, so don't include it redundantly here
-            logger.warning(f"attempt {attempt + 1} of {retries} failed:{will_retry}{e}")
+            logger.warning(f"attempt {attempt + 1} of {retries + 1} failed:{will_retry}{e}")
         except Exception as e:
             last_exception = e
             will_retry = ""
             if attempt < retries:
-                will_retry = f" (will retry in {backoff_in_seconds} seconds) "
+                will_retry = f" (will retry in {int(sleep_interval)} seconds) "
             # this is an unexpected exception type, so include the attempted request in case the
             # message from the unexpected exception doesn't.
-            logger.warning(f"attempt {attempt + 1} of {retries}{will_retry}: unexpected exception during GET {url}: {e}")
+            logger.warning(f"attempt {attempt + 1} of {retries + 1}{will_retry}: unexpected exception during GET {url}: {e}")
     if last_exception:
         logger.error(f"last retry of GET {url} failed with {last_exception}")
         raise last_exception

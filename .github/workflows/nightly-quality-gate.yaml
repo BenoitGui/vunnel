@@ -14,7 +14,7 @@ jobs:
     outputs:
       providers: ${{ steps.determine-providers.outputs.providers }}
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 #v4.1.1
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 #v4.1.7
         with:
           # in order to properly resolve the version from git
           fetch-depth: 0
@@ -43,7 +43,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 #v4.1.1
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 #v4.1.7
         with:
           # in order to properly resolve the version from git
           fetch-depth: 0
@@ -79,7 +79,7 @@ jobs:
           fi
           echo "🟢 Quality gate passed!"
 
-      - uses: 8398a7/action-slack@fbd6aa58ba854a740e11a35d0df80cb5d12101d8 #v3.15.1
+      - uses: 8398a7/action-slack@28ba43ae48961b90635b50953d216767a6bea486 #v3.16.2
         if: ${{ failure() }}
         with:
           status: ${{ job.status }}

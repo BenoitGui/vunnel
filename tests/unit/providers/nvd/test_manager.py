@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from vunnel import workspace
+from vunnel import workspace, schema
 from vunnel.providers.nvd import manager
 
 
@@ -26,8 +26,14 @@ def test_parser(tmpdir, helpers, mock_data_path, mocker):
         identity = f"{year}/{cve_id}"
         expected_vulns.append((identity, v))
 
-    subject = manager.Manager(workspace=workspace.Workspace(tmpdir, "test", create=True))
+    subject = manager.Manager(
+        workspace=workspace.Workspace(tmpdir, "test", create=True),
+        schema=schema.NVDSchema(),
+        overrides_url="http://example.com",
+    )
     subject.api.cve = mocker.Mock(return_value=[json_dict])
     actual_vulns = list(subject.get(None))
 
     assert expected_vulns == actual_vulns
+    for vuln in actual_vulns:
+        assert subject._sqlite_reader().read(vuln[0].lower()) is not None
