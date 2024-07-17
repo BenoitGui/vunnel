@@ -9,6 +9,7 @@ from vunnel.providers import (
     amazon,
     chainguard,
     debian,
+    epss,
     github,
     mariner,
     nvd,
@@ -17,7 +18,6 @@ from vunnel.providers import (
     sles,
     ubuntu,
     wolfi,
-    epss,
 )
 
 if sys.version_info < (3, 10):
