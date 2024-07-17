@@ -41,6 +41,10 @@ class Parser:
     @utils.retry_with_backoff()
     def _download(self):
         self.logger.info(f"downloading vulnerability data from {self._csv_url_}")
+        # NOTE: consider backing off to 'try yesterday' if the 'today' CSV doesn't exist (yet), if this is run on day boundries
+
+        # NOTE: consider skipping the whole execution if the 'today' CSV has already been processed soas not to waste time - the EPSS CSV bundle is only updated daily
+        
         r = requests.get(self._csv_url_, timeout=self.download_timeout)
         r.raise_for_status()
 
