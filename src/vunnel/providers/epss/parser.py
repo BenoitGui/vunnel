@@ -44,7 +44,7 @@ class Parser:
             logger = logging.getLogger(self.__class__.__name__)
         self.logger = logger
 
-    def get(self) -> Generator[tuple[str|None, dict[str, str]], None, None]:
+    def get(self) -> Generator[tuple[str | None, dict[str, str]], None, None]:
         """
         Download, load and normalize EPSS data
         :return:
@@ -70,7 +70,7 @@ class Parser:
         with gzip.GzipFile(fileobj=gzbuf, mode="rb") as GZFH, open(self.csv_file_path, "wb") as FH:
             FH.write(GZFH.read())
 
-    def _normalize(self) -> Generator[tuple[str|None, dict[str, str]], None, None]:
+    def _normalize(self) -> Generator[tuple[str | None, dict[str, str]], None, None]:
         with open(self.csv_file_path, encoding="utf-8") as FH:
             for csv_line in FH.readlines():
                 if not csv_line.startswith("CVE"):
