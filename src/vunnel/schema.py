@@ -15,6 +15,7 @@ NVD_SCHEMA_VERSION = "1.0.0"
 OSV_SCHEMA_VERSION = "1.6.1"
 EPSS_SCHEMA_VERSION = "1.0.0"
 
+
 @dataclass(frozen=True)
 class Schema:
     version: str
